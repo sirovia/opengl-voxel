@@ -44,7 +44,7 @@ void Shader::setFloat(std::string_view name, float val) const
 
 int Shader::loc(std::string_view name) const
 {
-	return glGetAttribLocation(id, name.data());
+	return glGetUniformLocation(id, name.data());
 }
 
 std::string Shader::readFile(std::string_view path)
