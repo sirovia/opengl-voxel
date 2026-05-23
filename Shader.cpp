@@ -41,6 +41,11 @@ void Shader::setFloat(std::string_view name, float val) const
 	glUniform1f(loc(name), val);
 }
 
+void Shader::setMat4(std::string_view name, glm::mat4 val) const
+{
+	glUniformMatrix4fv(loc(name), 1, GL_FALSE, glm::value_ptr(val));
+}
+
 
 int Shader::loc(std::string_view name) const
 {
