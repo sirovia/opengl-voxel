@@ -1,10 +1,13 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/norm.hpp>
 
 #include <iostream>
+#include <vector>
 
 #include "Shader.h"
 
@@ -13,8 +16,6 @@
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
-void mouse_callback(GLFWwindow* window, double xpos, double ypos);
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -54,9 +55,6 @@ int main() {
 
 	glfwMakeContextCurrent(window);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	glfwSetCursorPosCallback(window, mouse_callback);
-	glfwSetScrollCallback(window, scroll_callback);
 
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
 		std::cout << "Failed to initialize GLAD" << std::endl;
@@ -178,39 +176,41 @@ int main() {
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	glEnable(GL_DEPTH_TEST);
 
-	glm::vec3 cubePositions[] = {
-		glm::vec3(0.0f,  0.0f,  0.0f),
-		glm::vec3(2.0f,  5.0f, -15.0f),
-		glm::vec3(-1.5f, -2.2f, -2.5f),
-		glm::vec3(-3.8f, -2.0f, -12.3f),
-		glm::vec3(2.4f, -0.4f, -3.5f),
-		glm::vec3(-1.7f,  3.0f, -7.5f),
-		glm::vec3(1.3f, -2.0f, -2.5f),
-		glm::vec3(1.5f,  2.0f, -2.5f),
-		glm::vec3(1.5f,  0.2f, -1.5f),
-		glm::vec3(-1.3f,  1.0f, -1.5f)
-	};
+	std::vector<glm::mat4> parts = {glm::mat4(1.0)};
 
 	unsigned int transformLoc = glGetUniformLocation(shader.id, "transform");
 
 	glm::mat4 model(1.0f);
 	glm::mat4 view(1.0f);
-	view = glm::translate(view, glm::vec3(0.0f, -1.0f, -3.0f));
-	view = glm::rotate(view, glm::radians(15.f), glm::vec3(1.0f, 0.f, 0.f));
 	glm::mat4 proj = glm::perspective(glm::radians(fov), SCR_WIDTH / SCR_HEIGHT * 1.f, 0.1f, 100.f);
 
 	// render loop
+	bool lst = 0;
 	while (!glfwWindowShouldClose(window)) {
 		float currentT = glfwGetTime();
 		deltaTime = currentT - lastTime;
 		lastTime = currentT;
 
 		processInput(window);
+		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+			parts[0] = glm::rotate(parts[0], glm::radians(180.0f * deltaTime), glm::vec3(0.f, 1.0f, 0.0f));
+		}
+		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+			parts[0] = glm::rotate(parts[0], glm::radians(-180.0f * deltaTime), glm::vec3(0.f, 1.0f, 0.0f));
+		}
+		if (lst == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+			parts.emplace_back(glm::translate(parts.back(), glm::vec3(0.f, 0.f, -1.f)));
+		}
+		lst = glfwGetKey(window, GLFW_KEY_X);
+
+		parts[0] = glm::translate(parts[0], glm::vec3(0.f, 0.f, 10.f * deltaTime));
 
 		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		view = glm::lookAt(cameraPos, cameraFront + cameraPos, cameraUp);
+		view = glm::lookAt(glm::vec3(parts[0][3].x, parts[0][3].y + 10.f, parts[0][3].z - 6.f), 
+			glm::vec3(parts[0][3].x, parts[0][3].y, parts[0][3].z), 
+			cameraUp);
 
 		int modelLoc = glGetUniformLocation(shader.id, "model");
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
@@ -225,12 +225,14 @@ int main() {
 		glBindTexture(GL_TEXTURE_2D, texture[1]);
 
 		glBindVertexArray(VAO);
-		for (size_t i = 0; i < 10; i++) {
-			model = glm::mat4(1.0f);
-			model = glm::translate(model, cubePositions[i]);
-			model = glm::rotate(model, glm::radians(20.f * (i % 2 == 0 ? (float)glfwGetTime() : 1.0f)), glm::vec3(1.0f, 0.3f, 0.5f));
-			shader.setMat4("model", model);
-
+		shader.setMat4("model", parts[0]);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+		for (size_t i = 1; i < parts.size(); i++) {
+			glm::vec3 pos(parts[i][3]);
+			parts[i] = glm::inverse(glm::lookAt(glm::vec3(0.f), glm::normalize(pos - glm::vec3(parts[i - 1][3])), glm::vec3(0.f, 1.0f, 0.f)));
+			parts[i] = glm::translate(glm::mat4(1.0f), pos) * parts[i];
+			if(glm::length2(pos - glm::vec3(parts[i - 1][3])) > 1.f)parts[i] = glm::translate(parts[i], glm::vec3(0.f, 0.f, deltaTime * 10.0f));
+			shader.setMat4("model", parts[i]);
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
 
@@ -256,51 +258,4 @@ void processInput(GLFWwindow* window)
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, true);
 	}
-	const float cameraSpeed = 2.5f * deltaTime;
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-		cameraPos += cameraSpeed * cameraFront;
-	}
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-		cameraPos -= cameraSpeed * cameraFront;
-	}
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-		cameraPos -= cameraSpeed * glm::normalize(glm::cross(cameraFront, cameraUp));
-	}
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-		cameraPos += cameraSpeed * glm::normalize(glm::cross(cameraFront, cameraUp));
-	}
-}
-
-void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
-	if (firstMouse) {
-		lastX = xpos;
-		lastY = ypos;
-		firstMouse = false;
-	}
-	float xoffset = xpos - lastX;
-	float yoffset = ypos - lastY;
-	lastX = xpos;
-	lastY = ypos;
-
-	float sensitivity = 0.1f;
-	xoffset *= sensitivity;
-	yoffset *= sensitivity;
-
-	yaw += xoffset;
-	pitch -= yoffset;
-
-	if (pitch > 89.f)pitch = 89.f;
-	if (pitch < -89.f)pitch = -89.f;
-
-	glm::vec3 direction;
-	direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-	direction.y = sin(glm::radians(pitch));
-	direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-	cameraFront = glm::normalize(direction);	
-}
-
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-	fov -= (float)yoffset;
-	if (fov < 1.0f)fov = 1.0f;
-	if (fov > 100.f)fov = 100.f;
 }
